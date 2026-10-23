@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b2a33">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>Trajet animé</title>
+<style>
+:root{--bg:#0b2a33;--panel:#123943;--ink:#f4efe4;--mute:#9fb8bd;--acc:#f2682c;--ok:#5fd0a5}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font:16px/1.35 system-ui,sans-serif}
+body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#stage{flex:1;min-height:0;display:flex;justify-content:center;align-items:center;padding:8px}
+canvas{max-width:100%;max-height:100%;aspect-ratio:9/16;border-radius:10px;touch-action:none;background:#cfd8dc}
+#bar{background:var(--panel);padding:10px 12px 12px;display:grid;gap:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button,label.b,select,input{font:inherit;color:var(--ink);background:#1b4a56;border:0;border-radius:10px;padding:10px 12px;min-height:44px}
+button.on{background:var(--acc)}
+button.go{background:var(--ok);color:#06241a;font-weight:700}
+input[type=text]{flex:1;min-width:0}
+input[type=number]{width:84px}
+input[type=file]{display:none}
+#msg{color:var(--mute);font-size:14px;min-height:20px}
+#dl{color:var(--ok);font-weight:700}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c"></canvas></div>
+<div id="bar">
+  <div class="row">
+    <button id="bDraw" class="on">Tracer</button>
+    <button id="bUndo">Annuler</button>
+    <button id="bClear">Effacer</button>
+    <label class="b">Importer GPX<input id="gpx" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+  </div>
+  <div class="row">
+    <input id="title" type="text" placeholder="Titre de la vidéo" maxlength="40">
+    <input id="dur" type="number" value="12" min="3" max="120" aria-label="Durée en secondes">
+    <select id="cam" aria-label="Caméra"><option value="f">Caméra suit</option><option value="g">Vue globale</option></select>
+  </div>
+  <div class="row">
+    <button id="bPlay">Lecture</button>
+    <button id="bRec" class="go">Exporter la vidéo</button>
+  </div>
+  <div id="msg">Touchez la carte pour placer les points du trajet. Glissez pour déplacer, pincez pour zoomer.</div>
+  <a id="dl" hidden>Télécharger la vidéo</a>
+</div>
+<script>
+const W=720,H=1280,cv=document.getElementById('c'),ctx=cv.getContext('2d'),$=id=>document.getElementById(id);
+cv.width=W;cv.height=H;
+let pts=[],L=[0],z=5,cx=.53,cy=.34,t=0,playing=false,drawMode=true;
+const S=()=>256*2**z,sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const mx=l=>(l+180)/360,my=a=>{a*=Math.PI/180;return(1-Math.log(Math.tan(a)+1/Math.cos(a))/Math.PI)/2};
+const P=p=>[(p[0]-cx)*S()+W/2,(p[1]-cy)*S()+H/2];
+
+/* tuiles OpenStreetMap */
+const tc=new Map();let pend=0;
+function tile(tz,x,y){const k=tz+'/'+x+'/'+y;let i=tc.get(k);
+  if(!i){i=new Image();i.crossOrigin='anonymous';i.onload=()=>{i.ok=1;pend--;if(!playing)draw()};i.onerror=()=>pend--;pend++;i.src='https://tile.openstreetmap.org/'+k+'.png';tc.set(k,i)}
+  return i}
+function map(){
+  const tz=Math.max(1,Math.min(18,Math.round(z))),n=2**tz,sc=S()/n;
+  ctx.fillStyle='#cfd8dc';ctx.fillRect(0,0,W,H);
+  const x0=cx-W/2/S(),x1=cx+W/2/S(),y0=cy-H/2/S(),y1=cy+H/2/S();
+  for(let ty=Math.floor(y0*n);ty<=Math.floor(y1*n);ty++)for(let tx=Math.floor(x0*n);tx<=Math.floor(x1*n);tx++){
+    if(ty<0||ty>=n)continue;const i=tile(tz,((tx%n)+n)%n,ty);
+    if(i.ok)ctx.drawImage(i,(tx/n-cx)*S()+W/2,(ty/n-cy)*S()+H/2,sc+.5,sc+.5)}
+}
+
+/* trajet */
+function changed(){L=[0];for(let i=1;i<pts.length;i++)L.push(L[i-1]+Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]));t=0;$('dl').hidden=true;draw()}
+function head(){
+  if(pts.length<2)return[...(pts[0]||[cx,cy]),1];
+  const d=t*L[L.length-1];let i=1;while(i<L.length-1&&L[i]<d)i++;
+  const f=Math.min(1,Math.max(0,(d-L[i-1])/((L[i]-L[i-1])||1)));
+  return[pts[i-1][0]+(pts[i][0]-pts[i-1][0])*f,pts[i-1][1]+(pts[i][1]-pts[i-1][1])*f,i]}
+function path(a,col,w){ctx.beginPath();a.forEach((p,i)=>{const q=P(p);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1])});ctx.strokeStyle=col;ctx.lineWidth=w;ctx.stroke()}
+function dot(p,r,col){const q=P(p);ctx.beginPath();ctx.arc(q[0],q[1],r,0,7);ctx.fillStyle=col;ctx.fill();ctx.lineWidth=4;ctx.strokeStyle='#fff';ctx.stroke()}
+function bounds(){let a=1,b=0,c=1,d=0;pts.forEach(p=>{a=Math.min(a,p[0]);b=Math.max(b,p[0]);c=Math.min(c,p[1]);d=Math.max(d,p[1])});return[a,b,c,d]}
+function fitZ(){const[a,b,c,d]=bounds();return Math.max(2,Math.min(16,Math.log2(Math.min(W*.8/(Math.max(b-a,1e-6)*256),H*.7/(Math.max(d-c,1e-6)*256)))))}
+function cam(snap){
+  if(pts.length<2)return;
+  const fz=fitZ();
+  if($('cam').value==='g'){const[a,b,c,d]=bounds();z=fz;cx=(a+b)/2;cy=(c+d)/2;return}
+  z=Math.min(17,fz+1.8);const h=head();
+  if(snap){cx=h[0];cy=h[1]}else{cx+=(h[0]-cx)*.12;cy+=(h[1]-cy)*.12}}
+function draw(){
+  map();ctx.lineCap=ctx.lineJoin='round';
+  const anim=playing||t>0;
+  if(pts.length>1){
+    if(!anim){path(pts,'#fff',13);path(pts,'#0b6e8a',8)}
+    else{path(pts,'rgba(11,110,138,.45)',8);
+      const h=head(),a=pts.slice(0,h[2]).concat([[h[0],h[1]]]);path(a,'#fff',14);path(a,'#f2682c',9);dot(h,16,'#f2682c')}}
+  if(pts.length&&!anim)pts.forEach((p,i)=>dot(p,i?9:13,i?'#0b6e8a':'#5fd0a5'));
+  if(pts.length>1&&anim){dot(pts[0],11,'#5fd0a5');if(t>=1)dot(pts[pts.length-1],11,'#e0393e')}
+  const ti=$('title').value;
+  if(ti){ctx.font='700 60px system-ui,sans-serif';ctx.textAlign='center';ctx.lineWidth=12;ctx.strokeStyle='rgba(11,42,51,.9)';ctx.strokeText(ti,W/2,130,W-60);ctx.fillStyle='#f4efe4';ctx.fillText(ti,W/2,130,W-60)}
+  ctx.font='20px system-ui,sans-serif';ctx.textAlign='left';ctx.fillStyle='rgba(255,255,255,.8)';ctx.fillRect(0,H-30,230,30);ctx.fillStyle='#234';ctx.fillText('© OpenStreetMap',8,H-9)}
+
+/* interaction */
+const ptr=new Map();let moved=0,pd=0;
+const xy=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]};
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,xy(e));moved=0;if(ptr.size==2){const[a,b]=[...ptr.values()];pd=Math.hypot(a[0]-b[0],a[1]-b[1])}});
+cv.addEventListener('pointermove',e=>{
+  if(!ptr.has(e.pointerId)||playing)return;const o=ptr.get(e.pointerId),n=xy(e);
+  if(ptr.size==1){cx-=(n[0]-o[0])/S();cy-=(n[1]-o[1])/S();moved+=Math.abs(n[0]-o[0])+Math.abs(n[1]-o[1])}
+  ptr.set(e.pointerId,n);
+  if(ptr.size==2){const[a,b]=[...ptr.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pd)z=Math.max(1,Math.min(18,z+Math.log2(d/pd)));pd=d;moved+=99}
+  draw()});
+cv.addEventListener('pointerup',e=>{
+  const o=xy(e);
+  if(ptr.size==1&&moved<12&&drawMode&&!playing){pts.push([cx+(o[0]-W/2)/S(),cy+(o[1]-H/2)/S()]);changed()}
+  ptr.delete(e.pointerId);pd=0});
+cv.addEventListener('pointercancel',e=>ptr.delete(e.pointerId));
+cv.addEventListener('wheel',e=>{e.preventDefault();z=Math.max(1,Math.min(18,z-e.deltaY/400));draw()},{passive:false});
+
+$('bDraw').onclick=()=>{drawMode=!drawMode;$('bDraw').classList.toggle('on',drawMode)};
+$('bUndo').onclick=()=>{pts.pop();changed()};
+$('bClear').onclick=()=>{pts=[];changed()};
+$('title').oninput=()=>draw();
+$('cam').onchange=()=>{if(pts.length>1){t=0;cam(true);draw()}};
+$('gpx').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const d=new DOMParser().parseFromString(await f.text(),'text/xml');
+  let n=[...d.querySelectorAll('trkpt')];if(!n.length)n=[...d.querySelectorAll('rtept')];
+  let a=n.map(p=>[mx(+p.getAttribute('lon')),my(+p.getAttribute('lat'))]).filter(p=>p[0]==p[0]&&p[1]==p[1]);
+  if(a.length<2){$('msg').textContent='Aucun point de trajet trouvé dans ce fichier GPX.';return}
+  if(a.length>800){const s=a.length/800,l=a[a.length-1];a=Array.from({length:800},(_,i)=>a[Math.floor(i*s)]);a.push(l)}
+  pts=a;changed();z=fitZ();const b=bounds();cx=(b[0]+b[1])/2;cy=(b[2]+b[3])/2;draw();$('msg').textContent=a.length+' points importés.'};
+
+/* animation */
+function run(){return new Promise(res=>{
+  const D=Math.max(3,+$('dur').value||12)*1000,t0=performance.now();playing=true;t=0;cam(true);
+  (function f(n){t=Math.min(1,(n-t0)/D);cam();draw();if(t<1&&playing)requestAnimationFrame(f);else{playing=false;res()}})(t0)})}
+$('bPlay').onclick=async()=>{
+  if(playing){playing=false;return}
+  if(pts.length<2){$('msg').textContent='Placez au moins deux points pour lancer l’animation.';return}
+  $('bPlay').textContent='Arrêter';await run();$('bPlay').textContent='Lecture'};
+
+$('bRec').onclick=async()=>{
+  if(pts.length<2){$('msg').textContent='Placez au moins deux points avant d’exporter.';return}
+  if(!window.MediaRecorder){$('msg').textContent='Ce navigateur ne sait pas enregistrer de vidéo. Utilisez Chrome.';return}
+  $('bRec').disabled=true;$('dl').hidden=true;$('msg').textContent='Préchargement de la carte…';
+  for(let k=0;k<=30;k++){t=k/30;cam(true);draw()}
+  for(let i=0;i<120&&pend>0;i++)await sleep(100);
+  const mt=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(m=>MediaRecorder.isTypeSupported(m));
+  const rc=new MediaRecorder(cv.captureStream(30),{mimeType:mt,videoBitsPerSecond:6e6}),ch=[];
+  rc.ondataavailable=e=>e.data.size&&ch.push(e.data);
+  const done=new Promise(r=>rc.onstop=r);
+  $('msg').textContent='Enregistrement en cours… ne quittez pas l’écran.';
+  rc.start();await run();await sleep(700);rc.stop();await done;
+  const ext=mt.includes('mp4')?'mp4':'webm',a=$('dl');
+  a.href=URL.createObjectURL(new Blob(ch,{type:mt}));a.download='trajet.'+ext;a.textContent='Télécharger la vidéo ('+ext+')';a.hidden=false;
+  $('msg').textContent='Vidéo prête.';$('bRec').disabled=false};
+
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+draw();
+</script>
+</body>
+</html>
