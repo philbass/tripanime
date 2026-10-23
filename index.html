@@ -55,7 +55,7 @@ input[type=file]{display:none}
     <button id="bRec" class="go">Exporter la vidéo</button>
   </div>
   <div id="msg">Choisissez un style de carte et un transport, puis touchez la carte pour placer les points du trajet. Glissez pour déplacer, pincez pour zoomer.</div>
-  <small style="color:var(--mute)">Version 7 · villes, villages et pays uniquement</small>
+  <small style="color:var(--mute)">Version 8 · villes, villages et pays uniquement</small>
   <a id="dl" hidden>Télécharger la vidéo</a>
 </div>
 <script>
@@ -95,7 +95,7 @@ function gmStyle(st){
   for(const l of st.layers){
     const sl=l['source-layer'],id=l.id||'',p=l.paint=l.paint||{};
     if(l.type==='background'){p['background-color']=C.bg;out.push(l);continue}
-    if(l.type==='symbol'){if(sl==='place'&&KP.has(id)){l.layout=l.layout||{};l.layout['text-field']=['coalesce',['get','name'],['get','name:latin']];delete l.layout['text-transform'];p['text-color']='#2b3140';p['text-halo-color']='#fff';p['text-halo-width']=1.6;delete p['text-halo-blur'];out.push(l)}continue}
+    if(l.type==='symbol'){if(sl==='place'){const cl=['match',['get','class'],['city','town','village','country'],true,false];l.filter=l.filter?['all',l.filter,cl]:cl;l.layout=l.layout||{};l.layout['text-field']=['coalesce',['get','name'],['get','name:latin']];delete l.layout['text-transform'];p['text-color']='#2b3140';p['text-halo-color']='#fff';p['text-halo-width']=1.6;delete p['text-halo-blur'];out.push(l)}continue}
     if(l.type==='fill'){
       if(sl==='water'){p['fill-color']=C.sea;p['fill-opacity']=1;delete p['fill-outline-color'];delete p['fill-pattern'];out.push(l)}
       else if(sl==='park'||sl==='landcover'){p['fill-color']=sl==='park'?C.park:C.wood;p['fill-opacity']=.75;delete p['fill-outline-color'];delete p['fill-pattern'];out.push(l)}
