@@ -46,6 +46,8 @@ input::placeholder{color:var(--mute);font-weight:500}
 #bPlay svg{fill:currentColor;stroke:none;width:24px;height:24px}
 #bPlay .pa,#bPlay.on .pl{display:none}
 #bPlay.on .pa{display:block}
+.gpxbtn{flex:0 0 auto;height:50px;padding:0 16px;border-radius:25px;background:var(--mint);color:#0b4f33;font-weight:700;font-size:15px;display:flex;align-items:center;gap:6px;box-shadow:0 3px 10px rgba(11,79,51,.18);cursor:pointer}
+.gpxbtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
 #bRec{flex:1;height:50px;border:0;border-radius:25px;background:var(--blue);color:#fff;font-weight:700;font-size:16px;box-shadow:0 4px 12px rgba(43,143,214,.4)}
 #bRec:disabled{opacity:.6}
 #msg{color:var(--mute);font-size:12.5px;line-height:1.25}
@@ -62,7 +64,6 @@ input::placeholder{color:var(--mute);font-weight:500}
     <button class="tool on" id="bDraw" aria-label="Tracer le trajet"><svg viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2 2 0 0 1 3 3L8 19z"/></svg></button>
     <button class="tool" id="bUndo" aria-label="Annuler le dernier point"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
     <button class="tool" id="bClear" aria-label="Effacer le trajet"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
-    <label class="tool" aria-label="Importer un fichier GPX"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg><input id="gpx" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
   </div>
 </div></div>
 <div id="sheet">
@@ -75,16 +76,17 @@ input::placeholder{color:var(--mute);font-weight:500}
       <label class="pill"><input id="dur" type="number" value="12" min="3" max="120" aria-label="Durée en secondes"><span>secondes</span></label>
       <div class="seg" id="camSeg"></div>
     </div>
-    <small id="ver">Version 10 · nouvelle interface</small>
+    <small id="ver">Version 11 · trois cartes, GPX en bas</small>
   </div>
   <div class="acts">
     <button id="bPlay" aria-label="Lecture"><svg class="pl" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg><svg class="pa" viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+    <label class="gpxbtn" aria-label="Importer un fichier GPX"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>GPX<input id="gpx" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <button id="bRec">Exporter la vidéo</button>
   </div>
   <div id="msg">Touchez la carte pour placer les points du trajet. Glissez pour déplacer, pincez pour zoomer.</div>
   <a id="dl" hidden>Télécharger la vidéo</a>
 </div>
-<select id="sty" hidden><option value="gm" selected>Simplifiée</option><option value="clair">Grise</option><option value="osm">Détaillée</option><option value="sombre">Sombre</option><option value="sat">Satellite</option></select>
+<select id="sty" hidden><option value="gm" selected>Simplifiée</option><option value="osm">Détaillée</option><option value="sat">Satellite</option></select>
 <select id="mode" hidden><option value="car" selected>Voiture</option><option value="bike">Vélo</option><option value="moto">Moto</option><option value="boat">Bateau</option><option value="plane">Avion</option><option value="walk">À pied</option></select>
 <select id="cam" hidden><option value="f" selected>Suit</option><option value="g">Globale</option></select>
 <script>
@@ -99,10 +101,8 @@ const P=p=>[(p[0]-cx)*S()+W/2,(p[1]-cy)*S()+H/2];
 const SRC={osm:(z,x,y)=>`https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
   sat:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`};
 const STY={
-  clair:{src:'osm',f:'grayscale(1) brightness(1.14) contrast(.82)',a:'© OpenStreetMap'},
   gm:{vec:1,a:'OpenFreeMap © OpenMapTiles © OpenStreetMap'},
   osm:{src:'osm',f:'none',a:'© OpenStreetMap'},
-  sombre:{src:'osm',f:'invert(1) hue-rotate(180deg) grayscale(.55) brightness(.72) contrast(1.05)',a:'© OpenStreetMap'},
   sat:{src:'sat',f:'none',a:'Imagery © Esri'}};
 const tc=new Map();let pend=0;
 function tile(tz,x,y){const sy=STY[$('sty').value].src,k=sy+'/'+tz+'/'+x+'/'+y;let i=tc.get(k);
@@ -146,11 +146,11 @@ async function initVec(){
     mgl.on('render',()=>{if(!playing)draw()});
     await new Promise((ok,ko)=>{mgl.once('load',ok);setTimeout(ko,15000)});
     mglOK=true;mk='';draw();
-  }catch(e){mglOK=false;if($('sty').value==='gm'){$('sty').value='clair';chips();draw()}$('msg').textContent='Carte simplifiée indisponible (réseau) : carte grise utilisée.'}}
+  }catch(e){mglOK=false;if($('sty').value==='gm'){$('sty').value='osm';chips();draw()}$('msg').textContent='Carte simplifiée indisponible (réseau) : carte détaillée utilisée.'}}
 function map(){
   if(STY[$('sty').value].vec){vmap();return}
   const tz=Math.max(1,Math.min(17,Math.round(z))),n=2**tz,sc=S()/n;
-  ctx.fillStyle=$('sty').value==='sombre'?'#1b1d22':'#cfd8dc';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#cfd8dc';ctx.fillRect(0,0,W,H);
   const x0=cx-W/2/S(),x1=cx+W/2/S(),y0=cy-H/2/S(),y1=cy+H/2/S();
   ctx.filter=STY[$('sty').value].f;
   for(let ty=Math.floor(y0*n);ty<=Math.floor(y1*n);ty++)for(let tx=Math.floor(x0*n);tx<=Math.floor(x1*n);tx++){
@@ -310,9 +310,7 @@ function chips(){
     b.className='chip';b.dataset.m=m;b.append(c,n);b.onclick=()=>pick('mode',m);$('trChips').append(b)});
   const R='linear-gradient(135deg,transparent 44%,';
   [['gm','Simplifiée',R+'#a9b3d9 44% 54%,transparent 54%),linear-gradient(165deg,#84d5ea 0 40%,#c8f1d8 40%)'],
-   ['clair','Grise',R+'#fff 44% 54%,transparent 54%),#d9dce1'],
    ['osm','Détaillée',R+'#fcd6a4 44% 54%,transparent 54%),linear-gradient(165deg,#aad3df 0 35%,#f2efe9 35%)'],
-   ['sombre','Sombre',R+'#58606e 44% 54%,transparent 54%),#1b1d22'],
    ['sat','Satellite','linear-gradient(165deg,#2f5d73 0 35%,#5e7a46 35% 70%,#8a7650 70%)']].forEach(([v,n,bg])=>{
     const b=document.createElement('button'),i=document.createElement('i');
     i.style.background=bg;b.className='chip';b.dataset.s=v;b.append(i,n);b.onclick=()=>pick('sty',v);$('stChips').append(b)});
